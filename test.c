@@ -2,10 +2,16 @@
 #include <netlink/cache.h>
 #include <netlink/route/link.h>
 #include <netlink/route/route.h>
+#include <netlink/route/link/bridge.h>
 #include <stdio.h>
 
 struct nl_cache *myroutecahe = NULL;
 struct nl_cache *mylinkcache = NULL;
+
+struct meh {
+    const char *target;
+    int found;
+};
 
 static void
 myparse(struct nl_object *obj, void *arg)
@@ -58,11 +64,15 @@ static void
 linkinfo(struct nl_object *obj, void *arg)
 {
     int type = nl_object_get_msgtype(obj);
+    struct meh *meh = arg;
     //printf("type: %x\n", type);
     if (type == RTM_NEWLINK) {
         struct rtnl_link *link = (struct rtnl_link *)obj;
         printf(" %i\n", rtnl_link_get_ifindex(link));
         printf("  name: %s\n", rtnl_link_get_name(link));
+        if (meh && strcmp(meh->target, rtnl_link_get_name(link)) == 0) {
+            meh->found = 1;
+        }
         int master = rtnl_link_get_master(link);
         if (master) {
             printf("  master: %i\n", master);
@@ -115,7 +125,24 @@ int main()
      *  nl_socket_set_nonblocking(sock);
      */
     /* Since we populated the link cache already, lets enumerate it */
-    nl_cache_foreach(mylinkcache, linkinfo, NULL);
+    struct meh meh = {
+        .target = "testbridge",
+        .found = 0,
+    };
+    nl_cache_foreach(mylinkcache, linkinfo, &meh);
+    if (meh.found) {
+        printf("Found %s, not configuring\n", meh.target);
+    } else {
+        printf("Didn't find existing %s, configuring a new one\n", meh.target);
+        //struct rtnl_link *dev = rtnl_link_bridge_alloc();
+        int res = rtnl_link_bridge_add(sock, meh.target);
+        if (res != NLE_SUCCESS) {
+            printf(" Failed to create bridge: %s\n", nl_geterror(res));
+        }
+        /* If it was successful, we will get a new/update link event in
+         * nl_recvmsgs_default loop. Once that happens, we can assign
+         * addresses or whatever. */
+    }
     while (1) {
         nl_recvmsgs_default(sock);
     }
