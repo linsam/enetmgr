@@ -2,16 +2,28 @@
 #include <netlink/cache.h>
 #include <netlink/route/link.h>
 #include <netlink/route/route.h>
+#include <netlink/route/addr.h>
 #include <netlink/route/link/bridge.h>
 #include <stdio.h>
 
+/* Notes
+ *
+ *   - assigning an IPv4 address to an interface results in a very quick
+ *     call to the NEW ADDRESS callback. However, a new IPv6 assignment
+ *     incurs an 0.5 to 2 second (observed by feel, not by measure) delay,
+ *     presumably while the kernel does a peer check on the address.
+ */
+
 struct nl_cache *myroutecahe = NULL;
+struct nl_cache *myaddrcache = NULL;
 struct nl_cache *mylinkcache = NULL;
 
 struct meh {
     const char *target;
     int found;
 };
+
+static void addrinfo(struct nl_object *obj, void *arg);
 
 static void
 myparse(struct nl_object *obj, void *arg)
@@ -40,9 +52,15 @@ myparse(struct nl_object *obj, void *arg)
     } else if (nl_object_get_msgtype(obj) == RTM_DELLINK) {
         printf(" Removed link!\n");
         islink = 1;
+    } else if (nl_object_get_msgtype(obj) == RTM_NEWADDR) {
+        printf(" New (or updated) address!\n");
+        addrinfo(obj, NULL);
+    } else if (nl_object_get_msgtype(obj) == RTM_DELADDR) {
+        printf(" Removed address!\n");
+        addrinfo(obj, NULL);
     }
     if (islink) {
-        /* Hold your breath, cross your fingers... */
+        /* Hold your breath, cross your fingers, and cast it... */
         struct rtnl_link *link = (struct rtnl_link *)obj;
         printf("  name: %s\n", rtnl_link_get_name(link));
         printf("  type: %s\n", rtnl_link_get_type(link));
@@ -58,6 +76,27 @@ myparse(struct nl_object *obj, void *arg)
     }
     printf("\n");
 #endif
+}
+
+static void
+addrinfo(struct nl_object *obj, void *arg)
+{
+    int type = nl_object_get_msgtype(obj);
+    if (type != RTM_NEWADDR && type != RTM_DELADDR) {
+        /* TODO: Error? Warning? */
+        return;
+    }
+    struct rtnl_addr *addr = (struct rtnl_addr *)obj;
+    printf("interface %i\n", rtnl_addr_get_ifindex(addr));
+    printf(" family %i\n", rtnl_addr_get_family(addr));
+    printf(" prefix %i\n", rtnl_addr_get_prefixlen(addr));
+    printf(" scope %i\n", rtnl_addr_get_scope(addr));
+    struct nl_addr *naddr = rtnl_addr_get_local(addr);
+    char *repr = malloc(128);
+    nl_addr2str(naddr, repr, 128);
+    repr[127] = '\0'; // just in case
+    printf(" repr %s\n", repr);
+    free(repr);
 }
 
 static void
@@ -115,8 +154,11 @@ int main()
     nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, mycb, NULL);
     nl_connect(sock, NETLINK_ROUTE);
     nl_socket_add_memberships(sock, RTNLGRP_LINK, 0);
+    nl_socket_add_memberships(sock, RTNLGRP_IPV4_IFADDR, 0);
+    nl_socket_add_memberships(sock, RTNLGRP_IPV6_IFADDR, 0);
     //mycahe = link_alloc_cache(sock);
     rtnl_route_alloc_cache(sock, 0, 0, &myroutecahe);
+    rtnl_addr_alloc_cache(sock, &myaddrcache);
     rtnl_link_alloc_cache(sock, 0, &mylinkcache);
     printf("Socket port: %08x\n", nl_socket_get_local_port(sock));
     /* can get FD to pass to a select loop using
@@ -130,6 +172,7 @@ int main()
         .found = 0,
     };
     nl_cache_foreach(mylinkcache, linkinfo, &meh);
+    nl_cache_foreach(myaddrcache, addrinfo, NULL);
     if (meh.found) {
         printf("Found %s, not configuring\n", meh.target);
     } else {
