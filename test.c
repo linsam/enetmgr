@@ -18,7 +18,7 @@ struct nl_cache *myroutecahe = NULL;
 struct nl_cache *myaddrcache = NULL;
 struct nl_cache *mylinkcache = NULL;
 
-struct meh {
+struct state {
     const char *target;
     int found;
 };
@@ -103,14 +103,14 @@ static void
 linkinfo(struct nl_object *obj, void *arg)
 {
     int type = nl_object_get_msgtype(obj);
-    struct meh *meh = arg;
+    struct state *state = arg;
     //printf("type: %x\n", type);
     if (type == RTM_NEWLINK) {
         struct rtnl_link *link = (struct rtnl_link *)obj;
         printf(" %i\n", rtnl_link_get_ifindex(link));
         printf("  name: %s\n", rtnl_link_get_name(link));
-        if (meh && strcmp(meh->target, rtnl_link_get_name(link)) == 0) {
-            meh->found = 1;
+        if (state && strcmp(state->target, rtnl_link_get_name(link)) == 0) {
+            state->found = 1;
         }
         int master = rtnl_link_get_master(link);
         if (master) {
@@ -146,17 +146,13 @@ mycb(struct nl_msg *msg, void *arg)
 
 int main()
 {
-    //printf("int: %li\n", sizeof(int));
-    //printf("int*: %li\n", sizeof(int*));
     struct nl_sock *sock = nl_socket_alloc();
-    //printf("good\n");
     nl_socket_disable_seq_check(sock);
     nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, mycb, NULL);
     nl_connect(sock, NETLINK_ROUTE);
     nl_socket_add_memberships(sock, RTNLGRP_LINK, 0);
     nl_socket_add_memberships(sock, RTNLGRP_IPV4_IFADDR, 0);
     nl_socket_add_memberships(sock, RTNLGRP_IPV6_IFADDR, 0);
-    //mycahe = link_alloc_cache(sock);
     rtnl_route_alloc_cache(sock, 0, 0, &myroutecahe);
     rtnl_addr_alloc_cache(sock, &myaddrcache);
     rtnl_link_alloc_cache(sock, 0, &mylinkcache);
@@ -167,18 +163,18 @@ int main()
      *  nl_socket_set_nonblocking(sock);
      */
     /* Since we populated the link cache already, lets enumerate it */
-    struct meh meh = {
+    struct state state = {
         .target = "testbridge",
         .found = 0,
     };
-    nl_cache_foreach(mylinkcache, linkinfo, &meh);
+    nl_cache_foreach(mylinkcache, linkinfo, &state);
     nl_cache_foreach(myaddrcache, addrinfo, NULL);
-    if (meh.found) {
-        printf("Found %s, not configuring\n", meh.target);
+    if (state.found) {
+        printf("Found %s, not configuring\n", state.target);
     } else {
-        printf("Didn't find existing %s, configuring a new one\n", meh.target);
+        printf("Didn't find existing %s, configuring a new one\n", state.target);
         //struct rtnl_link *dev = rtnl_link_bridge_alloc();
-        int res = rtnl_link_bridge_add(sock, meh.target);
+        int res = rtnl_link_bridge_add(sock, state.target);
         if (res != NLE_SUCCESS) {
             printf(" Failed to create bridge: %s\n", nl_geterror(res));
         }
