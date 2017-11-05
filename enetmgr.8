@@ -1,0 +1,38 @@
+.\" See <https://liw.fi/manpages/> and man-pages(7) for imformation on how to
+.\" edit this file
+.TH ENETMGR 8 2017-11-04
+.SH NAME
+enetmgr \- A network management daemon for embedded systems
+.SH SYNOPSIS
+.SY enetmgr
+.OP \-\-config CONFIG_DIR
+.YS
+.SH DESCRIPTION
+.B enetmgr
+is a network management and supervision daemon. Given a set of parameters
+about how the network should look on a system, it strives to keep the network
+in that state.
+.SH OPTIONS
+.TP
+.BR \-\-config =\fICONFIG_DIR\fR
+Use a different configuration directory than the default (see FILES below).
+.SH ENVIRONMENT
+.TP
+.BR ENETMGR_CONFIGDIR
+Use a different configuration directory than the default (see FILES below).
+.SH FILES
+.TP
+.I /etc/enetmgr
+Default configuration directory. Overridden by ENETMGR_CONFIGDIR environment
+variable, or by the --config option.
+.SH NOTES
+tbd
+.SH BUGS
+There are many.
+Check for existing and report new bugs at
+.UR TBD
+.UE
+.SH SEE ALSO
+.ad l
+.nh
+.BR enetmgr (5)

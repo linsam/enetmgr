@@ -1,0 +1,111 @@
+.\" See <https://liw.fi/manpages/> and man-pages(7) for imformation on how to
+.\" edit this file
+.TH ENETMGR 5 2017-11-04
+.SH NAME
+enetmgr \- configuration directory for enetmgr(8)
+.SH SYNOPSIS
+.SY /etc/enetmgr
+.YS
+.SH DESCRIPTION
+.BR enetmgr (8)
+gets its configuration by reading entries in a configuration directory.
+That is, the configuration database is the system's filesystem. Entries in the
+database are files. This allows reconfiguration by simple tools (like
+redirecting output from the echo command) and avoids complicated formats.
+.P
+Each network interface gets its own subdirectory in the configuration
+directory. Files in the interface's subdirectory describe the interface. Each
+interface has a type, identified by the contents of the file named type. Every
+interface subdirectory must have a type file. Additionally, there are some
+common files, and files specific to a given type.
+.SH TYPES
+The following are valid values for the
+.B type
+file.
+.TP
+.BR unmanaged
+Interface may or may not exist.
+.B enetmgr
+won't create or destroy the device.
+.BI TODO:
+can it set the device's master
+whenever it exists? This might have an impact on things like addresses, and if
+we don't change address configuration, we wouldn't be able to do that as a
+result.
+My primary thinking here was to be able to have, say, an interface managed by
+some other entity (such as qemu) be configured to have an IP have a master set
+(e.g. to a bridge) by enetmgr.
+.TP
+.BR regular
+Interface is expected to be a regular (e.g. Ethernet) interface, as opposed to
+a virtual interface such as a veth pair, tunnel, bridge, bond, etc.
+.B enetmgr
+will not create such a device, but it will configure it whenever the device is
+present.
+.TP
+.BR bridge
+Interface is a software bridge. It will be created if it doesn't already
+exist. Should also have a file
+.B stp
+containing a 0 to disable spanning tree or 1 to enable it.
+.IP
+.B TODO: Probably lots of others too, like hello_time, priority, etc.
+.TP
+.BR bond
+Interface is a software bond. It will be created if it doesn't already exist.
+It should also have a file
+.B bond-method
+that contains the type of bond (e.g. lacp/802.3ad or active-backup).
+.P
+.B TODO: Others.
+the ip command currently supports link types vlan, veth, vcan, dummy, ifb, macvlan, macvtap, bridge, bond, ipoib, ip6tnl, ipip, sit, vxlan, gre, gretap, ip6gre, ip6gretap, vti, nlmon, bond_slave, ipvlan, geneve, bridge_slave, vrf, and tunnel types ipip, gre, sit, isatap, vti, ip6ip6, ipip6, ip6gre, vti6, l2tp, foo-over-UDP, Generic UDP encapsulation. Some third party interface types include wireguard (supposedly coming to the mainline kernel in the next year or two), and eoip tunnel (used by mikrotik routers, basically ethernet encapsulated in a gre tunnel). There are also openvswitch devices, but we don't want to deal with creating those. We may still want to do things like give them IP addresses.
+.SH  Configuration Files
+.SS Common files
+.TP
+.BR down
+Empty file. When present, the interface is set administratively down.
+.TP
+.BR ip
+list of IP addresses and prefix values, one per line.
+.IP
+.B TODO:
+should this be formatted like djbdns (e.g. use a '+' at the beginning of entries to add and - to remove, or should we only use addresses listed at all, or should this be a directory of arbitrary files, each with a single address (would naming be confusing)? What about DHCP, or APIPA, or other configuration methods? For example, IPv6 tokens (static host address for dynamic SLAAC prefix)
+directory of files is nice if other utilities configuring enetmgr want to compete nicely (e.g. what if dhcp client adds a file for the address it obtained instead of setting itself). Also allows a user to remove a single address by 'rm' instead of sed or awk or grep or somesuch.
+.TP
+.BR route
+list of routes to exist when interface is up.
+.IP
+.B TODO:
+This can be complicated on linux. There are multiple routing tables, and
+there are routing rules. If using a VRF interface, things get more interesting
+(or, perhaps, simpler). A first pass would be to simply use the default table
+(except for VRF type). Hopefully devices with master set don't themselves add
+routes, but if they do, perhaps we'd need to follow the master chain to see if
+we hit a VRF, and modify that VRF's routing table instead of the default one.
+.BR ???
+.SS Bridge files
+.TP
+.B stp
+single line with value 0 for no spanning tree, or 1 to enable spanning tree.
+.SH TODO
+There is a lot left to figure out here.
+.P
+.B How to change configuration on a running system.
+We could have a separate tool that manages the daemon (a. la. telinit to init,
+or systemctl to systemd). Or we could provide an interface (e.g. HTTP, local
+socket, dbus). We could monitor files (e.g. inotify, or poll, or wait until
+signalled).
+.P
+.B Ability to fall back.
+In an embedded environment, there might not be a terminal (serial or direct
+attached keyboard/monitor), so a mistake in changing settings can be
+problematic. Some systems handle this by doing live configuration in volatile
+memory and committing to disk separately  (e.g. use of ifconfig and iptables
+vs editing /etc/conf.d/net or running iptables-save). Other systems maintain
+history and automatic roll-back. Others have a live directory and a startup
+directory (e.g. s6-rc), which provides atomically changing from one config to
+another, but not fallback.
+.SH SEE ALSO
+.ad l
+.nh
+.BR enetmgr (8)
