@@ -87,16 +87,17 @@ addrinfo(struct nl_object *obj, void *arg)
         return;
     }
     struct rtnl_addr *addr = (struct rtnl_addr *)obj;
-    printf("interface %i\n", rtnl_addr_get_ifindex(addr));
-    printf(" family %i\n", rtnl_addr_get_family(addr));
-    printf(" prefix %i\n", rtnl_addr_get_prefixlen(addr));
-    printf(" scope %i\n", rtnl_addr_get_scope(addr));
+    printf("interface %3i", rtnl_addr_get_ifindex(addr));
+    printf(" family %2i", rtnl_addr_get_family(addr));
+    printf(" prefix %3i", rtnl_addr_get_prefixlen(addr));
+    printf(" scope %3i", rtnl_addr_get_scope(addr));
     struct nl_addr *naddr = rtnl_addr_get_local(addr);
     char *repr = malloc(128);
     nl_addr2str(naddr, repr, 128);
     repr[127] = '\0'; // just in case
-    printf(" repr %s\n", repr);
+    printf(" repr %s", repr);
     free(repr);
+    printf("\n");
 }
 
 static void
@@ -104,32 +105,36 @@ linkinfo(struct nl_object *obj, void *arg)
 {
     int type = nl_object_get_msgtype(obj);
     struct state *state = arg;
-    //printf("type: %x\n", type);
     if (type == RTM_NEWLINK) {
         struct rtnl_link *link = (struct rtnl_link *)obj;
-        printf(" %i\n", rtnl_link_get_ifindex(link));
-        printf("  name: %s\n", rtnl_link_get_name(link));
+        printf(" ifindex: %3i", rtnl_link_get_ifindex(link));
+        printf("  name: %-16s", rtnl_link_get_name(link));
         if (state && strcmp(state->target, rtnl_link_get_name(link)) == 0) {
             state->found = 1;
         }
+        const char *type = rtnl_link_get_type(link);
+        if (type) {
+            printf("  type: %-11s", type);
+        }
         int master = rtnl_link_get_master(link);
         if (master) {
-            printf("  master: %i\n", master);
+            printf("  master: %i", master);
         }
         int32_t outns;
         int ret;
         ret = rtnl_link_get_link_netnsid(link, &outns);
         if (ret == 0) {
-            printf("  nsid: %i\n", outns);
+            printf("  nsid: %i", outns);
         }
         pid_t nspid = rtnl_link_get_ns_pid(link);
         if (nspid) {
-            printf("  nspid: %i\n", nspid);
+            printf("  nspid: %i", nspid);
         }
         int plink = rtnl_link_get_link(link);
         if (plink) {
-            printf("  link: %i\n", plink);
+            printf("  link: %i", plink);
         }
+        printf("\n");
     }
 
 }
@@ -182,7 +187,7 @@ int main()
          * nl_recvmsgs_default loop. Once that happens, we can assign
          * addresses or whatever. */
     }
-    while (1) {
+    while (0) {
         nl_recvmsgs_default(sock);
     }
     nl_socket_free(sock);
