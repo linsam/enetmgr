@@ -7,3 +7,5 @@ monitors the state of networking. Embedded systems already have daemon
 monitors (runit, s6, nosh, other daemon-tools) and service management (nosh?,
 s6-rc, anopa) that are lighter weight than systemd. It just misses a
 monitor/manager for networking.
+
+status: pre-alpha. Not functinal. Mostly in design and experimentation phase.
