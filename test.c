@@ -10,6 +10,12 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+#if DEBUG
+#define dprintf(...) printf(__VA_ARGS__)
+#else
+#define dprintf(...)
+#endif
+
 /* Notes
  *
  *   - assigning an IPv4 address to an interface results in a very quick
@@ -52,26 +58,18 @@ myparse(struct nl_object *obj, void *arg)
         printf("  count: %i\n", nl_cache_nitems(cache));
     }
 #endif
-    int islink = 0;
     if (nl_object_get_msgtype(obj) == RTM_NEWLINK) {
-        printf(" New (or updated) link!\n");
-        islink = 1;
+        dprintf(" New (or updated) link!\n");
+        linkinfo(obj, arg);
     } else if (nl_object_get_msgtype(obj) == RTM_DELLINK) {
-        printf(" Removed link!\n");
-        islink = 1;
+        dprintf(" Removed link!\n");
+        linkinfo(obj, arg);
     } else if (nl_object_get_msgtype(obj) == RTM_NEWADDR) {
-        printf(" New (or updated) address!\n");
+        dprintf(" New (or updated) address!\n");
         addrinfo(obj, NULL);
     } else if (nl_object_get_msgtype(obj) == RTM_DELADDR) {
-        printf(" Removed address!\n");
+        dprintf(" Removed address!\n");
         addrinfo(obj, NULL);
-    }
-    if (islink) {
-        /* Hold your breath, cross your fingers, and cast it... */
-        struct rtnl_link *link = (struct rtnl_link *)obj;
-        printf("  name: %s\n", rtnl_link_get_name(link));
-        printf("  type: %s\n", rtnl_link_get_type(link));
-        linkinfo(obj, arg);
     }
 #ifdef DEBUG
     printf("dump:");
