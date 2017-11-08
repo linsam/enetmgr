@@ -30,6 +30,7 @@ struct state {
 };
 
 static void addrinfo(struct nl_object *obj, void *arg);
+static void linkinfo(struct nl_object *obj, void *arg);
 
 static void
 myparse(struct nl_object *obj, void *arg)
@@ -70,6 +71,7 @@ myparse(struct nl_object *obj, void *arg)
         struct rtnl_link *link = (struct rtnl_link *)obj;
         printf("  name: %s\n", rtnl_link_get_name(link));
         printf("  type: %s\n", rtnl_link_get_type(link));
+        linkinfo(obj, arg);
     }
 #ifdef DEBUG
     printf("dump:");
@@ -109,9 +111,9 @@ addrinfo(struct nl_object *obj, void *arg)
 static void
 linkinfo(struct nl_object *obj, void *arg)
 {
-    int type = nl_object_get_msgtype(obj);
+    int msgtype = nl_object_get_msgtype(obj);
     struct state *state = arg;
-    if (type == RTM_NEWLINK) {
+    if (msgtype == RTM_NEWLINK || msgtype == RTM_DELLINK) {
         struct rtnl_link *link = (struct rtnl_link *)obj;
         printf(" ifindex: %3i", rtnl_link_get_ifindex(link));
         printf("  name: %-16s", rtnl_link_get_name(link));
@@ -145,7 +147,7 @@ linkinfo(struct nl_object *obj, void *arg)
         printf("\n");
         if (state && state->cb) {
             /* EVENT: 1=new, 2=remove */
-            state->cb(state, 1, rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
+            state->cb(state, msgtype == RTM_NEWLINK ? 1 : 2, rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
         }
     }
 
@@ -157,7 +159,7 @@ mycb(struct nl_msg *msg, void *arg)
     //printf("cb\n");
     //nl_msg_dump(msg, stdout);
     // msg_parse seems to do nothing unless a cache exists
-    nl_msg_parse(msg, myparse, NULL);
+    nl_msg_parse(msg, myparse, arg);
     return 0;
 }
 
@@ -210,7 +212,7 @@ int main()
     };
     struct nl_sock *sock = nl_socket_alloc();
     nl_socket_disable_seq_check(sock);
-    nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, mycb, NULL);
+    nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, mycb, &state);
     nl_connect(sock, NETLINK_ROUTE);
     nl_socket_add_memberships(sock, RTNLGRP_LINK, 0);
     nl_socket_add_memberships(sock, RTNLGRP_IPV4_IFADDR, 0);
