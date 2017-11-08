@@ -1,6 +1,6 @@
 CFLAGS:=-g
 
-all: test
+all: enetmgr
 
-test: test.c
-	gcc -o test -I /usr/include/libnl3 test.c -lnl-3 -lnl-route-3
+enetmgr: enetmgr.c
+	gcc -o $@ -I /usr/include/libnl3 $^ -lnl-3 -lnl-route-3
