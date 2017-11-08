@@ -5,6 +5,8 @@
 #include <netlink/route/addr.h>
 #include <netlink/route/link/bridge.h>
 #include <stdio.h>
+#include <dirent.h>
+#include <errno.h>
 
 /* Notes
  *
@@ -151,6 +153,15 @@ mycb(struct nl_msg *msg, void *arg)
 
 int main()
 {
+    const char *confdir_path = getenv("ENETMGR_CONFIGDIR");
+    if (!confdir_path) {
+        confdir_path = "/etc/enetmgr";
+    };
+    DIR *confdir = opendir(confdir_path);
+    if (!confdir) {
+        fprintf(stderr, "Could not open %s: %s\n", confdir_path, strerror(errno));
+        return 1;
+    }
     struct nl_sock *sock = nl_socket_alloc();
     nl_socket_disable_seq_check(sock);
     nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, mycb, NULL);
@@ -167,6 +178,13 @@ int main()
      * can set it to non-blocking mode to poll using
      *  nl_socket_set_nonblocking(sock);
      */
+    struct dirent *dirent;
+    while (dirent = readdir(confdir)) {
+        if (dirent->d_name[0] == '.') {
+            continue;
+        }
+        printf("%s\n", dirent->d_name);
+    }
     /* Since we populated the link cache already, lets enumerate it */
     struct state state = {
         .target = "testbridge",
