@@ -25,7 +25,7 @@ struct nl_cache *mylinkcache = NULL;
 struct state {
     const char *target;
     int found;
-    void (*cb)(struct state *, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink);
+    void (*cb)(struct state *, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink);
     char *helper;
 };
 
@@ -144,7 +144,8 @@ linkinfo(struct nl_object *obj, void *arg)
         }
         printf("\n");
         if (state && state->cb) {
-            state->cb(state, rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
+            /* EVENT: 1=new, 2=remove */
+            state->cb(state, 1, rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
         }
     }
 
@@ -161,13 +162,14 @@ mycb(struct nl_msg *msg, void *arg)
 }
 
 void
-fork_link_event(struct state *state, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink)
+fork_link_event(struct state *state, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink)
 {
     char ifindex_str[20];
     char master_str[20];
     char netnsid_str[20];
     char pid_str[20];
     char plink_str[20];
+    char event_str[20];
     if (!state->helper) {
         return;
     }
@@ -177,13 +179,14 @@ fork_link_event(struct state *state, int ifindex, const char *name, const char *
     snprintf(netnsid_str, sizeof netnsid_str, "%i", netnsid);
     snprintf(pid_str, sizeof pid_str, "%i", nspid);
     snprintf(plink_str, sizeof plink_str, "%i", plink);
+    snprintf(event_str, sizeof event_str, "%i", event);
     pid_t child = fork();
     if (child) {
         int status;
         waitpid(child, &status, 0);
         return;
     }
-    execl(state->helper, state->helper, ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, NULL);
+    execl(state->helper, state->helper, "link", event_str, ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, NULL);
     /* TODO: Show name of helper in error message */
     perror("Failed to run helper");
     exit(1);

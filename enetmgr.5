@@ -70,6 +70,24 @@ If present, this file specifies the complete filename (with path) of a program
 to execute when events, such as link creation, occur. This is useful when a
 system has special needs that can't be described in the existing configuration
 files. An administrator can write arbitrary scripts to handle events.
+.IP
+For link events, the program will receive: the word "link", the number 1 or 2
+(new, deleted respectively), the interface index number, the interface name,
+the type, the ifindex of the interface's master (or 0 for none), the name
+space id number, the namespace pid number, and the ifindex of the interfaces
+peer (or 0 for none).
+.IP
+Example: /path/to/myscript "link" "1" "2" "eth0" "" "0" "0" "0"
+.IP
+Example: /path/to/myscript "link" "1" "31" "testbridge" "bridge" "0" "0" "0" "0"
+.IP
+Example: /path/to/myscript "link" "1" "21" "vethf6cce97" "veth" "31" "1" "0" "20"
+.IP
+The 3 above example invocations show a regular ethernet adapter "eth0" (type
+string is blank), a bridge called "testbridge", and one side of a veth pair
+"vethf6cce97" (from a docker image), whose master is the "testbridge" above,
+has a namespace ID number, and whose peer is ifindex "20", which we don't see
+(it isn't in our namespace).
 .SS Common interface files
 .TP
 .BR down
