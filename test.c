@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <dirent.h>
 #include <errno.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 /* Notes
  *
@@ -23,6 +25,7 @@ struct nl_cache *mylinkcache = NULL;
 struct state {
     const char *target;
     int found;
+    void (*cb)(int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink);
 };
 
 static void addrinfo(struct nl_object *obj, void *arg);
@@ -127,6 +130,8 @@ linkinfo(struct nl_object *obj, void *arg)
         ret = rtnl_link_get_link_netnsid(link, &outns);
         if (ret == 0) {
             printf("  nsid: %i", outns);
+        } else {
+            outns = 0;
         }
         pid_t nspid = rtnl_link_get_ns_pid(link);
         if (nspid) {
@@ -137,6 +142,9 @@ linkinfo(struct nl_object *obj, void *arg)
             printf("  link: %i", plink);
         }
         printf("\n");
+        if (state && state->cb) {
+            state->cb(rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
+        }
     }
 
 }
@@ -149,6 +157,31 @@ mycb(struct nl_msg *msg, void *arg)
     // msg_parse seems to do nothing unless a cache exists
     nl_msg_parse(msg, myparse, NULL);
     return 0;
+}
+
+void
+fork_link_event(int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink)
+{
+    char ifindex_str[20];
+    char master_str[20];
+    char netnsid_str[20];
+    char pid_str[20];
+    char plink_str[20];
+
+    snprintf(ifindex_str, sizeof ifindex_str, "%i", ifindex);
+    snprintf(master_str, sizeof master_str, "%i", master);
+    snprintf(netnsid_str, sizeof netnsid_str, "%i", netnsid);
+    snprintf(pid_str, sizeof pid_str, "%i", nspid);
+    snprintf(plink_str, sizeof plink_str, "%i", plink);
+    pid_t child = fork();
+    if (child) {
+        int status;
+        waitpid(child, &status, 0);
+        return;
+    }
+    execl("/tmp/test", "/tmp/test", ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, NULL);
+    perror("Failed to run /tmp/test");
+    exit(1);
 }
 
 int main()
@@ -189,6 +222,7 @@ int main()
     struct state state = {
         .target = "testbridge",
         .found = 0,
+        .cb = fork_link_event,
     };
     nl_cache_foreach(mylinkcache, linkinfo, &state);
     nl_cache_foreach(myaddrcache, addrinfo, NULL);
@@ -205,7 +239,7 @@ int main()
          * nl_recvmsgs_default loop. Once that happens, we can assign
          * addresses or whatever. */
     }
-    while (0) {
+    while (1) {
         nl_recvmsgs_default(sock);
     }
     nl_socket_free(sock);
