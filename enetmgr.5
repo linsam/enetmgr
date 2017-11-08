@@ -74,20 +74,21 @@ files. An administrator can write arbitrary scripts to handle events.
 For link events, the program will receive: the word "link", the number 1 or 2
 (new, deleted respectively), the interface index number, the interface name,
 the type, the ifindex of the interface's master (or 0 for none), the name
-space id number, the namespace pid number, and the ifindex of the interfaces
-peer (or 0 for none).
+space id number, the namespace pid number, the ifindex of the interfaces
+peer (or 0 for none), the state of carrier sense, and the operational state.
 .IP
-Example: /path/to/myscript "link" "1" "2" "eth0" "" "0" "0" "0"
+Example: /path/to/myscript "link" "1" "2" "eth0" "" "0" "0" "0" "down" "down"
 .IP
-Example: /path/to/myscript "link" "1" "31" "testbridge" "bridge" "0" "0" "0" "0"
+Example: /path/to/myscript "link" "1" "31" "testbridge" "bridge" "0" "0" "0" "0" "up" "down"
 .IP
-Example: /path/to/myscript "link" "1" "21" "vethf6cce97" "veth" "31" "1" "0" "20"
+Example: /path/to/myscript "link" "1" "21" "vethf6cce97" "veth" "31" "1" "0" "20" "up" "up"
 .IP
 The 3 above example invocations show a regular ethernet adapter "eth0" (type
-string is blank), a bridge called "testbridge", and one side of a veth pair
-"vethf6cce97" (from a docker image), whose master is the "testbridge" above,
-has a namespace ID number, and whose peer is ifindex "20", which we don't see
-(it isn't in our namespace).
+string is blank) which has no link, a bridge called "testbridge" that is
+administratively down, and one side of a veth pair "vethf6cce97" (from a
+docker image), whose master is the "testbridge" above, has a namespace ID
+number, and whose peer is ifindex "20", which we don't see (it isn't in our
+namespace).
 .SS Common interface files
 .TP
 .BR down

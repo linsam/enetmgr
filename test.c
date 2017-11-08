@@ -31,7 +31,7 @@ struct nl_cache *mylinkcache = NULL;
 struct state {
     const char *target;
     int found;
-    void (*cb)(struct state *, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink);
+    void (*cb)(struct state *, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink, char *carrier, char *operstate);
     char *helper;
 };
 
@@ -142,10 +142,16 @@ linkinfo(struct nl_object *obj, void *arg)
         if (plink) {
             printf("  link: %i", plink);
         }
+        char carrier[20];
+        char operstate[20];
+        rtnl_link_carrier2str(rtnl_link_get_carrier(link), carrier, sizeof carrier);
+        rtnl_link_operstate2str(rtnl_link_get_operstate(link), operstate, sizeof operstate);
+        printf("  carrier: %02hhx(%s)", rtnl_link_get_carrier(link), carrier);
+        printf("  operate: %02hhx(%s)", rtnl_link_get_operstate(link), operstate);
         printf("\n");
         if (state && state->cb) {
             /* EVENT: 1=new, 2=remove */
-            state->cb(state, msgtype == RTM_NEWLINK ? 1 : 2, rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
+            state->cb(state, msgtype == RTM_NEWLINK ? 1 : 2, rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink, carrier, operstate);
         }
     }
 
@@ -162,7 +168,7 @@ mycb(struct nl_msg *msg, void *arg)
 }
 
 void
-fork_link_event(struct state *state, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink)
+fork_link_event(struct state *state, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink, char *carrier, char *operstate)
 {
     char ifindex_str[20];
     char master_str[20];
@@ -186,7 +192,7 @@ fork_link_event(struct state *state, int event, int ifindex, const char *name, c
         waitpid(child, &status, 0);
         return;
     }
-    execl(state->helper, state->helper, "link", event_str, ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, NULL);
+    execl(state->helper, state->helper, "link", event_str, ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, carrier, operstate, NULL);
     /* TODO: Show name of helper in error message */
     perror("Failed to run helper");
     exit(1);
