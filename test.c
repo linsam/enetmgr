@@ -25,7 +25,8 @@ struct nl_cache *mylinkcache = NULL;
 struct state {
     const char *target;
     int found;
-    void (*cb)(int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink);
+    void (*cb)(struct state *, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink);
+    char *helper;
 };
 
 static void addrinfo(struct nl_object *obj, void *arg);
@@ -143,7 +144,7 @@ linkinfo(struct nl_object *obj, void *arg)
         }
         printf("\n");
         if (state && state->cb) {
-            state->cb(rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
+            state->cb(state, rtnl_link_get_ifindex(link), rtnl_link_get_name(link), type, master, outns, nspid, plink);
         }
     }
 
@@ -160,13 +161,16 @@ mycb(struct nl_msg *msg, void *arg)
 }
 
 void
-fork_link_event(int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink)
+fork_link_event(struct state *state, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink)
 {
     char ifindex_str[20];
     char master_str[20];
     char netnsid_str[20];
     char pid_str[20];
     char plink_str[20];
+    if (!state->helper) {
+        return;
+    }
 
     snprintf(ifindex_str, sizeof ifindex_str, "%i", ifindex);
     snprintf(master_str, sizeof master_str, "%i", master);
@@ -179,8 +183,9 @@ fork_link_event(int ifindex, const char *name, const char *type, int master, int
         waitpid(child, &status, 0);
         return;
     }
-    execl("/tmp/test", "/tmp/test", ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, NULL);
-    perror("Failed to run /tmp/test");
+    execl(state->helper, state->helper, ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, NULL);
+    /* TODO: Show name of helper in error message */
+    perror("Failed to run helper");
     exit(1);
 }
 
@@ -195,6 +200,11 @@ int main()
         fprintf(stderr, "Could not open %s: %s\n", confdir_path, strerror(errno));
         return 1;
     }
+    struct state state = {
+        .target = "testbridge",
+        .found = 0,
+        .cb = fork_link_event,
+    };
     struct nl_sock *sock = nl_socket_alloc();
     nl_socket_disable_seq_check(sock);
     nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, mycb, NULL);
@@ -217,13 +227,27 @@ int main()
             continue;
         }
         printf("%s\n", dirent->d_name);
+        if (strcmp(dirent->d_name, "helper") == 0) {
+            char *buf = malloc(2048); /* TODO: Use whatever MAX_PATH is */
+            if (buf) {
+                state.helper = buf;
+                snprintf(buf, 2048, "%s/%s", confdir_path, dirent->d_name);
+                buf[2047] = '\0';
+                FILE *f = fopen(buf, "r");
+                if (!f) {
+                    perror("read helper");
+                } else {
+                    int pos = fread(buf, 1, 2047, f);
+                    fclose(f);
+                    buf[pos] = '\0';
+                    /* Remove last EOL. */
+                    char * n = strrchr(buf, '\n');
+                    if (n) *n = '\0';
+                }
+            }
+        }
     }
     /* Since we populated the link cache already, lets enumerate it */
-    struct state state = {
-        .target = "testbridge",
-        .found = 0,
-        .cb = fork_link_event,
-    };
     nl_cache_foreach(mylinkcache, linkinfo, &state);
     nl_cache_foreach(myaddrcache, addrinfo, NULL);
     if (state.found) {

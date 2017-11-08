@@ -18,6 +18,9 @@ directory. Files in the interface's subdirectory describe the interface. Each
 interface has a type, identified by the contents of the file named type. Every
 interface subdirectory must have a type file. Additionally, there are some
 common files, and files specific to a given type.
+.P There are also some top-level files that configure
+.B netmgr
+globally
 .SH TYPES
 The following are valid values for the
 .B type
@@ -60,7 +63,14 @@ that contains the type of bond (e.g. lacp/802.3ad or active-backup).
 .B TODO: Others.
 the ip command currently supports link types vlan, veth, vcan, dummy, ifb, macvlan, macvtap, bridge, bond, ipoib, ip6tnl, ipip, sit, vxlan, gre, gretap, ip6gre, ip6gretap, vti, nlmon, bond_slave, ipvlan, geneve, bridge_slave, vrf, and tunnel types ipip, gre, sit, isatap, vti, ip6ip6, ipip6, ip6gre, vti6, l2tp, foo-over-UDP, Generic UDP encapsulation. Some third party interface types include wireguard (supposedly coming to the mainline kernel in the next year or two), and eoip tunnel (used by mikrotik routers, basically ethernet encapsulated in a gre tunnel). There are also openvswitch devices, but we don't want to deal with creating those. We may still want to do things like give them IP addresses.
 .SH  Configuration Files
-.SS Common files
+.SS Top level (global) files
+.TP
+.BR helper
+If present, this file specifies the complete filename (with path) of a program
+to execute when events, such as link creation, occur. This is useful when a
+system has special needs that can't be described in the existing configuration
+files. An administrator can write arbitrary scripts to handle events.
+.SS Common interface files
 .TP
 .BR down
 Empty file. When present, the interface is set administratively down.
