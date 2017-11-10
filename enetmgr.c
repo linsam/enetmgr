@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 
 #if DEBUG
 #define dprintf(...) printf(__VA_ARGS__)
@@ -28,15 +29,56 @@ struct nl_cache *myroutecahe = NULL;
 struct nl_cache *myaddrcache = NULL;
 struct nl_cache *mylinkcache = NULL;
 
-struct state {
-    const char *target;
+struct interface {
+    struct interface *next;
+    char *name;
     int found;
+};
+
+struct state {
+    struct interface *interfaces;
+    struct interface *unconf;
     void (*cb)(struct state *, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink, char *carrier, char *operstate);
     char *helper;
 };
 
 static void addrinfo(struct nl_object *obj, void *arg);
 static void linkinfo(struct nl_object *obj, void *arg);
+
+/** Allocate a new interface object, placing it in a list.
+ *
+ * Also returns a pointer to the new interface, in case caller wants to
+ * modify it without having to search for it again.
+ */
+static struct interface *
+addInterface(struct interface **head, const char *name)
+{
+    struct interface *interface = malloc(sizeof *interface);
+    memset(interface, 0, sizeof *interface);
+    interface->name = strdup(name);
+    if (*head == NULL) {
+        *head = interface;
+    } else {
+        struct interface *i = *head;
+        while (i->next) {
+            i = i->next;
+        }
+        i->next = interface;
+    }
+    return interface;
+}
+
+static struct interface *
+findInterfaceByName(struct interface *head, const char *query)
+{
+    while (head) {
+        if (strcmp(head->name, query) == 0) {
+            return head;
+        }
+        head = head->next;
+    }
+    return head;
+}
 
 static void
 myparse(struct nl_object *obj, void *arg)
@@ -115,8 +157,14 @@ linkinfo(struct nl_object *obj, void *arg)
         struct rtnl_link *link = (struct rtnl_link *)obj;
         printf(" ifindex: %3i", rtnl_link_get_ifindex(link));
         printf("  name: %-16s", rtnl_link_get_name(link));
-        if (state && strcmp(state->target, rtnl_link_get_name(link)) == 0) {
-            state->found = 1;
+        struct interface *interface = findInterfaceByName(state->interfaces, rtnl_link_get_name(link));
+        if (interface) {
+            interface->found = 1;
+        } else {
+            /* TODO: print message? do something, like wild card check or
+             * something?
+             */
+            addInterface(&state->unconf, rtnl_link_get_name(link));
         }
         const char *type = rtnl_link_get_type(link);
         if (type) {
@@ -210,9 +258,8 @@ int main()
         return 1;
     }
     struct state state = {
-        .target = "testbridge",
-        .found = 0,
         .cb = fork_link_event,
+        .interfaces = NULL,
     };
     struct nl_sock *sock = nl_socket_alloc();
     nl_socket_disable_seq_check(sock);
@@ -231,34 +278,69 @@ int main()
      *  nl_socket_set_nonblocking(sock);
      */
     struct dirent *dirent;
+    char *buf = malloc(2048); /* TODO: Use whatever MAX_PATH is */
+    if (!buf) {
+        perror("memory");
+        return 1;
+    }
+    struct stat stats;
     while (dirent = readdir(confdir)) {
         if (dirent->d_name[0] == '.') {
             continue;
         }
         printf("%s\n", dirent->d_name);
-        if (strcmp(dirent->d_name, "helper") == 0) {
-            char *buf = malloc(2048); /* TODO: Use whatever MAX_PATH is */
-            if (buf) {
-                state.helper = buf;
-                snprintf(buf, 2048, "%s/%s", confdir_path, dirent->d_name);
-                buf[2047] = '\0';
-                FILE *f = fopen(buf, "r");
-                if (!f) {
-                    perror("read helper");
-                } else {
-                    int pos = fread(buf, 1, 2047, f);
-                    fclose(f);
-                    buf[pos] = '\0';
-                    /* Remove last EOL. */
-                    char * n = strrchr(buf, '\n');
-                    if (n) *n = '\0';
-                }
+        snprintf(buf, 2048, "%s/%s", confdir_path, dirent->d_name);
+        int res = stat(buf, &stats);
+        if (res != 0) {
+            perror("stat");
+            continue;
+        }
+        if (S_ISREG(stats.st_mode) && strcmp(dirent->d_name, "helper") == 0) {
+            buf[2047] = '\0';
+            FILE *f = fopen(buf, "r");
+            if (!f) {
+                perror("read helper");
+            } else {
+                int pos = fread(buf, 1, 2047, f);
+                fclose(f);
+                buf[pos] = '\0';
+                /* Remove last EOL. */
+                char * n = strrchr(buf, '\n');
+                if (n) *n = '\0';
+                state.helper = strdup(buf);
             }
+        } else if (S_ISDIR(stats.st_mode)) {
+            addInterface(&state.interfaces, dirent->d_name);
+        } else {
+            /* TODO: Maybe only when debug is set? */
+            printf("WARNING: Ignoring %s\n", buf);
         }
     }
+    free(buf);
     /* Since we populated the link cache already, lets enumerate it */
     nl_cache_foreach(mylinkcache, linkinfo, &state);
     nl_cache_foreach(myaddrcache, addrinfo, NULL);
+
+    {
+        struct interface *i;
+        printf("Initial pass complete.\n Existing managed interfaces:\n");
+        for (i = state.interfaces; i; i = i->next) {
+            if (i->found) {
+                printf("  %s\n", i->name);
+            }
+        }
+        printf("\n Existing unmanaged interfaces:\n");
+        for (i = state.unconf; i; i = i->next) {
+            printf("  %s\n", i->name);
+        }
+        printf("\n Non existant interfaces we are supposed to manage:\n");
+        for (i = state.interfaces; i; i = i->next) {
+            if (!i->found) {
+                printf("  %s\n", i->name);
+            }
+        }
+    }
+#if 0
     if (state.found) {
         printf("Found %s, not configuring\n", state.target);
     } else {
@@ -272,6 +354,7 @@ int main()
          * nl_recvmsgs_default loop. Once that happens, we can assign
          * addresses or whatever. */
     }
+#endif
     while (1) {
         nl_recvmsgs_default(sock);
     }
