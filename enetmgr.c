@@ -446,6 +446,7 @@ int main()
      * can set it to non-blocking mode to poll using
      *  nl_socket_set_nonblocking(sock);
      */
+    nl_socket_set_nonblocking(sock);
     struct dirent *dirent;
     char *buf = malloc(2048); /* TODO: Use whatever MAX_PATH is */
     if (!buf) {
@@ -565,7 +566,20 @@ int main()
          * addresses or whatever. */
     }
 #endif
+    int sockfd = nl_socket_get_fd(sock);
     while (1) {
+        fd_set rfd;
+        int retval;
+        FD_ZERO(&rfd);
+        FD_SET(sockfd, &rfd);
+        retval = select(sockfd + 1, &rfd, NULL, NULL, NULL);
+        if (retval == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            perror("select");
+            return 1;
+        }
         nl_recvmsgs_default(sock);
     }
     nl_socket_free(sock);
