@@ -112,6 +112,11 @@ there are routing rules. If using a VRF interface, things get more interesting
 routes, but if they do, perhaps we'd need to follow the master chain to see if
 we hit a VRF, and modify that VRF's routing table instead of the default one.
 .BR ???
+.TP
+.BR master
+Name of interface that should master this one. Mostly used to make the
+interface a member of a bond or a bridge, but might also be used for VRF
+membership.
 .SS Bridge files
 .TP
 .B stp
