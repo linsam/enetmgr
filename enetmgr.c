@@ -80,6 +80,69 @@ findInterfaceByName(struct interface *head, const char *query)
     return head;
 }
 
+/** Read a one-liner config file and store it into buf.
+ *
+ * This will read text from the specified configuration file. The last EOL
+ * will be stripped, if present. A string terminator will be added.
+ *
+ * As a consequence of the current implementation, a file consisting only
+ * of an incomplete line will be read full. A file with multiple complete
+ * lines and an incomplete line will result in the loss of the incomplete
+ * line. This is possibly the worst "compromise" in the debate of partial
+ * line handling.
+ *
+ * @param devname name of device which has the desired config file. May be
+ * NULL to indicate global config.
+ * @param name name of config file under device (or global if \p devname is
+ * NULL).
+ * @param [out] buf buffer to place the output.
+ * @param max maximum number of bytes to read into buffer, including the
+ * string terminator.
+ *
+ * @return number of bytes actually read, or -1 for error.
+ */
+int
+confFileToBuf(struct state *state, const char *devname, const char *name, char *buf, size_t max)
+{
+    char fullname[1000];
+    int res;
+    if (devname) {
+        res = snprintf(fullname, sizeof fullname, "%s/%s/%s", state->confdir, devname, name);
+    } else {
+        res = snprintf(fullname, sizeof fullname, "%s/%s", state->confdir, name);
+    }
+    if (res < 0 || res >= sizeof fullname) {
+        /* error or truncation */
+        return -1;
+    }
+    FILE *f = fopen(fullname, "r");
+    if (!f) {
+        /* TODO: have caller display error instead of us. a file that
+         * doesn't exist might be ok; for example, reading
+         * confdir/dev/master would fail if a device doesn't need a master
+         * (and thus doesn't specify the file).
+         * OR: The caller should ensure they want to read the file first,
+         * before calling this.
+         */
+        fprintf(stderr, "couldn't read %s: %s\n", fullname, strerror(errno));
+        return -1;
+    }
+    int pos = fread(buf, 1, max - 1, f);
+    dprintf(stderr, "max = %li, pos = %i\n", max, pos);
+    fclose(f);
+    buf[pos] = '\0';
+    /* Remove last EOL. */
+    char * n = strrchr(buf, '\n');
+    if (n) *n = '\0';
+    /* TODO: for full partial line handling, only check the last char for
+     * \n. Alternatively, for complete non-handling of partial line, set
+     * index 0 to \0 if n is NULL.
+     */
+    dprintf("File read (%s). contents are: %s\n", fullname, buf);
+    if (n) return n-buf; /* TODO: check math.*/
+    return pos; /* TODO: check math */
+}
+
 static void
 myparse(struct nl_object *obj, void *arg)
 {
@@ -296,17 +359,8 @@ int main()
             continue;
         }
         if (S_ISREG(stats.st_mode) && strcmp(dirent->d_name, "helper") == 0) {
-            buf[2047] = '\0';
-            FILE *f = fopen(buf, "r");
-            if (!f) {
-                perror("read helper");
-            } else {
-                int pos = fread(buf, 1, 2047, f);
-                fclose(f);
-                buf[pos] = '\0';
-                /* Remove last EOL. */
-                char * n = strrchr(buf, '\n');
-                if (n) *n = '\0';
+            int size = confFileToBuf(&state, NULL, "helper", buf, 2048);
+            if (size > 0) {
                 state.helper = strdup(buf);
             }
         } else if (S_ISDIR(stats.st_mode)) {
