@@ -4,12 +4,15 @@
 #include <netlink/route/route.h>
 #include <netlink/route/addr.h>
 #include <netlink/route/link/bridge.h>
+#include <netlink/route/link/bonding.h>
 #include <stdio.h>
 #include <dirent.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <stdbool.h>
+#include <assert.h>
 
 #if DEBUG
 #define dprintf(...) printf(__VA_ARGS__)
@@ -144,6 +147,101 @@ confFileToBuf(struct state *state, const char *devname, const char *name, char *
     dprintf("File read (%s). contents are: %s\n", fullname, buf);
     if (n) return n-buf; /* TODO: check math.*/
     return pos; /* TODO: check math */
+}
+
+#define VI_OK 0
+#define VI_ERROR -1
+#define VI_BAD_TYPE 1
+
+static int
+validateInterface(struct state *state, struct interface *interface)
+{
+    char buf[1000];
+    int ret = confFileToBuf(state, interface->name, "type", buf, sizeof buf);
+    if (ret < 1) {
+        return VI_ERROR;
+    }
+    if (strcmp(buf, "unmanaged") == 0) {
+        ; /* ignore */
+    } else if (strcmp(buf, "regular") == 0) {
+        ; /* Ingore for now */
+    } else if (strcmp(buf, interface->type) != 0) {
+        return VI_BAD_TYPE;
+    }
+    return VI_OK;
+}
+
+static void
+destroyInterface(struct state *state, const char *name)
+{
+    assert(0); /* TODO: Implementation */
+    return;
+}
+
+/** Instantiate an interface by reading configuration.
+ */
+static void
+createInterface(struct state *state, const char *name)
+{
+    char buf[1000];
+    int ret = confFileToBuf(state, name, "type", buf, sizeof buf);
+    if (ret < 1) {
+        return;
+    }
+    printf("Setting up interface %s of type %s\n", name, buf);
+    if (strcmp(buf, "unmanaged") == 0) {
+        printf(" Device is unmanaged; not creating\n");
+    } else if (strcmp(buf, "regular") == 0) {
+        printf(" Physical device doesn't exist and can't create physical objects.\n");
+    } else if (strcmp(buf, "bridge") == 0) {
+        int res = rtnl_link_bridge_add(state->nlsocket, name);
+        if (res != NLE_SUCCESS) {
+            printf(" Failed to create bridge: %s\n", nl_geterror(res));
+        }
+    } else if (strcmp(buf, "bond") == 0) {
+        int res = rtnl_link_bond_add(state->nlsocket, name, NULL);
+        if (res != NLE_SUCCESS) {
+            printf(" Failed to create bond: %s\n", nl_geterror(res));
+        }
+    } else if (strcmp(buf, "dummy") == 0) {
+        printf(" dummy not yet implemented\n");
+        //libnl3 doesn't seem to support creating a dummy device?
+        //TODO: handroll creation request
+    } else {
+        fprintf(stderr, " Unknown type %s\n", buf);
+    }
+}
+
+static void
+configureInterface(struct state *state, struct interface *interface)
+{
+    char buf[1000];
+    /* Check if this device wants a master */
+    int ret = confFileToBuf(state, interface->name, "master", buf, sizeof buf);
+    if (ret > 0) {
+        /* NOTE: according to libnl, older kernels require a legacy
+         * interface. If we get -NLE_OPNOTSUPP, we may want to utilize that
+         * method. Though, this is supposedly a working interface since
+         * 2011; given that this is six years later; we'll probably only
+         * add backwards compatibility if someone really needs it.
+         */
+        struct rtnl_link *master, *slave;
+        master = rtnl_link_get_by_name(mylinkcache, buf);
+        slave = rtnl_link_get_by_name(mylinkcache, interface->name);
+        if (master && slave) {
+            fprintf(stderr, "Set device %s to be slave of %s\n", interface->name, buf);
+            /* TODO: error checking */
+            rtnl_link_enslave(state->nlsocket, master, slave);
+        } else {
+            /* TODO: better reporting */
+            fprintf(stderr, "something went wrong\n");
+        }
+    } else {
+        /* Device shouldn't have a master */
+        /* TODO: Check if device has master. If it does, release it. */
+    }
+    /* TODO: put other configuration we support here */
+    return;
 }
 
 static void
@@ -382,6 +480,9 @@ int main()
 
     {
         struct interface *i;
+        /* TODO: Calling these managed is confusing, given that they might
+         * have a confuration type of unmanaged! This should mean "known by
+         * configuration" or something. */
         printf("Initial pass complete.\n Existing managed interfaces:\n");
         for (i = state.interfaces; i; i = i->next) {
             if (i->found) {
@@ -397,6 +498,41 @@ int main()
             if (!i->found) {
                 printf("  %s\n", i->name);
             }
+        }
+        /* Check existing devices for correct type. If they are
+         * wrong, we'll have to remove them, set them as not found, and
+         * allow the next section to add them as the correct type.
+         */
+        for (i = state.interfaces; i; i = i->next) {
+            if (i->found) {
+                int res = validateInterface(&state, i);
+                if (res == VI_BAD_TYPE) {
+                    fprintf(stderr, "WARNING: interface %s has wrong type. Removing. Will re-create with correct type.\n", i->name);
+                    /* TODO: Verify device destruction, probably by
+                     * pumping some events from the netlink socket */
+                    destroyInterface(&state, i->name);
+                    i->found = false;
+                } else if (res != VI_OK) {
+                    fprintf(stderr, "Unexpected validation result\n");
+                }
+            }
+        }
+        /* Now, let us instantiate all of the interfaces we are supposed to
+         * manage. We won't fully configure them yet; they might depend on
+         * other interfaces we haven't made quite yet.
+         */
+        for (i = state.interfaces; i; i = i->next) {
+            if (!i->found) {
+                createInterface(&state, i->name);
+            }
+        }
+
+        /* Finally, let us configure the interfaces. Since everything
+         * should exist at this point, setting up masters and such should
+         * be fine at this stage.
+         */
+        for (i = state.interfaces; i; i = i->next) {
+            configureInterface(&state, i);
         }
     }
 #if 0
