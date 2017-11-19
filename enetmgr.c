@@ -33,11 +33,14 @@ struct interface {
     struct interface *next;
     char *name;
     int found;
+    char *type;
 };
 
 struct state {
     struct interface *interfaces;
     struct interface *unconf;
+    struct nl_sock *nlsocket;
+    const char *confdir;
     void (*cb)(struct state *, int event, int ifindex, const char *name, const char *type, int master, int netnsid, pid_t nspid, int plink, char *carrier, char *operstate);
     char *helper;
 };
@@ -227,11 +230,12 @@ linkinfo(struct nl_object *obj, void *arg)
             /* TODO: print message? do something, like wild card check or
              * something?
              */
-            addInterface(&state->unconf, rtnl_link_get_name(link));
+            interface = addInterface(&state->unconf, rtnl_link_get_name(link));
         }
         const char *type = rtnl_link_get_type(link);
         if (type) {
             printf("  type: %-11s", type);
+            interface->type = strdup(type);
         }
         int master = rtnl_link_get_master(link);
         if (master) {
@@ -320,11 +324,13 @@ int main()
         fprintf(stderr, "Could not open %s: %s\n", confdir_path, strerror(errno));
         return 1;
     }
+    struct nl_sock *sock = nl_socket_alloc();
     struct state state = {
         .cb = fork_link_event,
         .interfaces = NULL,
+        .confdir = confdir_path,
+        .nlsocket = sock,
     };
-    struct nl_sock *sock = nl_socket_alloc();
     nl_socket_disable_seq_check(sock);
     nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, mycb, &state);
     nl_connect(sock, NETLINK_ROUTE);
