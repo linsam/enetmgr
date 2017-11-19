@@ -308,8 +308,7 @@ fork_link_event(struct state *state, int event, int ifindex, const char *name, c
         return;
     }
     execl(state->helper, state->helper, "link", event_str, ifindex_str, name?name:"", type?type:"", master_str, netnsid_str, pid_str, plink_str, carrier, operstate, NULL);
-    /* TODO: Show name of helper in error message */
-    perror("Failed to run helper");
+    fprintf(stderr,"Failed to run helper %s: %s\n", state->helper, strerror(errno));
     exit(1);
 }
 
