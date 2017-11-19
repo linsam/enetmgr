@@ -228,13 +228,16 @@ configureInterface(struct state *state, struct interface *interface)
         struct rtnl_link *master, *slave;
         master = rtnl_link_get_by_name(mylinkcache, buf);
         slave = rtnl_link_get_by_name(mylinkcache, interface->name);
+        /* Note: An interface doesn't seem to need to be released from a
+         * previous master prior to assigning a new one.
+         */
         if (master && slave) {
             fprintf(stderr, "Set device %s to be slave of %s\n", interface->name, buf);
             /* TODO: error checking */
             rtnl_link_enslave(state->nlsocket, master, slave);
         } else {
             /* TODO: better reporting */
-            fprintf(stderr, "something went wrong\n");
+            fprintf(stderr, "something went wrong. master: %p, slave: %p\n", master, slave);
         }
     } else {
         /* Device shouldn't have a master */
@@ -526,6 +529,18 @@ int main()
                 createInterface(&state, i->name);
             }
         }
+
+        /* TODO: Why aren't our created interfaces showing up in the cache?
+         * Are we required to add them to the cache manually? Perhaps we
+         * could do a total cache refresh here, but that seems like a bad
+         * idea (would result in calling our helper script more than we
+         * really want).
+         *
+         * TODO: We should maybe not call the helper until things have
+         * settled down anyway? What is the point of calling it if we are
+         * about to remove and recreate an interface?
+         */
+
 
         /* Finally, let us configure the interfaces. Since everything
          * should exist at this point, setting up masters and such should
