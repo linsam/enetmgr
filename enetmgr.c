@@ -247,6 +247,42 @@ configureInterface(struct state *state, struct interface *interface)
     return;
 }
 
+/** Update a cache entry.
+ *
+ * This function is based largely on pickup_checkdup_cb from libnl, but
+ * with the added feature that we can add, update, or remove an entry.
+ *
+ * @param cache the cache to update.
+ * @param obj the object to put into the cache.
+ * @param remove if true, removes the object from the cache, if found.
+ */
+static void
+updateCache(struct nl_cache *cache, struct nl_object *obj, int remove)
+{
+    struct nl_object *cache_obj = nl_cache_search(cache, obj);
+    if (cache_obj) {
+        if (remove) {
+            nl_cache_remove(cache_obj);
+            nl_object_put(cache_obj);
+            return;
+        }
+        if (nl_object_update(cache_obj, obj) == 0) {
+            nl_object_put(cache_obj);
+            return;
+        }
+        /* Object isn't updatable, or other error. Remove it and add the
+         * new one instead. */
+        nl_cache_remove(cache_obj);
+        nl_object_put(cache_obj);
+    }
+    if (remove) {
+        /* Didn't find object in cache, but want to remove, so do nothing.
+         */
+        return;
+    }
+    nl_cache_add(cache, obj);
+}
+
 static void
 myparse(struct nl_object *obj, void *arg)
 {
@@ -270,9 +306,11 @@ myparse(struct nl_object *obj, void *arg)
     if (nl_object_get_msgtype(obj) == RTM_NEWLINK) {
         dprintf(" New (or updated) link!\n");
         linkinfo(obj, arg);
+        updateCache(mylinkcache, obj, 0);
     } else if (nl_object_get_msgtype(obj) == RTM_DELLINK) {
         dprintf(" Removed link!\n");
         linkinfo(obj, arg);
+        updateCache(mylinkcache, obj, 1);
     } else if (nl_object_get_msgtype(obj) == RTM_NEWADDR) {
         dprintf(" New (or updated) address!\n");
         addrinfo(obj, NULL);
@@ -531,18 +569,6 @@ int main()
             }
         }
 
-        /* TODO: Why aren't our created interfaces showing up in the cache?
-         * Are we required to add them to the cache manually? Perhaps we
-         * could do a total cache refresh here, but that seems like a bad
-         * idea (would result in calling our helper script more than we
-         * really want).
-         *
-         * TODO: We should maybe not call the helper until things have
-         * settled down anyway? What is the point of calling it if we are
-         * about to remove and recreate an interface?
-         */
-
-
         /* Finally, let us configure the interfaces. Since everything
          * should exist at this point, setting up masters and such should
          * be fine at this stage.
@@ -551,21 +577,6 @@ int main()
             configureInterface(&state, i);
         }
     }
-#if 0
-    if (state.found) {
-        printf("Found %s, not configuring\n", state.target);
-    } else {
-        printf("Didn't find existing %s, configuring a new one\n", state.target);
-        //struct rtnl_link *dev = rtnl_link_bridge_alloc();
-        int res = rtnl_link_bridge_add(sock, state.target);
-        if (res != NLE_SUCCESS) {
-            printf(" Failed to create bridge: %s\n", nl_geterror(res));
-        }
-        /* If it was successful, we will get a new/update link event in
-         * nl_recvmsgs_default loop. Once that happens, we can assign
-         * addresses or whatever. */
-    }
-#endif
     int sockfd = nl_socket_get_fd(sock);
     while (1) {
         fd_set rfd;
