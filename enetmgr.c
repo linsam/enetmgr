@@ -48,6 +48,8 @@ struct state {
     char *helper;
 };
 
+int fileToBuf(const char *filename, char *buf, size_t max);
+
 static void addrinfo(struct nl_object *obj, void *arg);
 static void linkinfo(struct nl_object *obj, void *arg);
 
@@ -106,6 +108,10 @@ findInterfaceByName(struct interface *head, const char *query)
  * string terminator.
  *
  * @return number of bytes actually read, or -1 for error.
+ * @note errno will be set if -1 is returned. The values can be any error
+ * from the printf() family of functions, or from fopen, or as below:
+ * @li ENOMEM not enough memory to perform operation. Typically, the buffer
+ * for the filename wasn't large enough.
  */
 int
 confFileToBuf(struct state *state, const char *devname, const char *name, char *buf, size_t max)
@@ -119,18 +125,43 @@ confFileToBuf(struct state *state, const char *devname, const char *name, char *
     }
     if (res < 0 || res >= sizeof fullname) {
         /* error or truncation */
+        if (res > 0) errno = ENOMEM; /* or maybe ENAMETOOLONG? or ERANGE? */
         return -1;
     }
-    FILE *f = fopen(fullname, "r");
-    if (!f) {
-        /* TODO: have caller display error instead of us. a file that
-         * doesn't exist might be ok; for example, reading
-         * confdir/dev/master would fail if a device doesn't need a master
-         * (and thus doesn't specify the file).
-         * OR: The caller should ensure they want to read the file first,
-         * before calling this.
-         */
+    res = fileToBuf(fullname, buf, max);
+    if (res == -1) {
+        int tmp = errno;
         fprintf(stderr, "couldn't read %s: %s\n", fullname, strerror(errno));
+        errno = tmp;
+    }
+    return res;
+}
+
+/** Like confFileToBuf, but don't display errors.
+ */
+int
+confFileToBufSilent(struct state *state, const char *devname, const char *name, char *buf, size_t max)
+{
+    char fullname[1000];
+    int res;
+    if (devname) {
+        res = snprintf(fullname, sizeof fullname, "%s/%s/%s", state->confdir, devname, name);
+    } else {
+        res = snprintf(fullname, sizeof fullname, "%s/%s", state->confdir, name);
+    }
+    if (res < 0 || res >= sizeof fullname) {
+        /* error or truncation */
+        if (res > 0) errno = ENOMEM; /* or maybe ENAMETOOLONG? or ERANGE? */
+        return -1;
+    }
+    return fileToBuf(fullname, buf, max);
+}
+
+int
+fileToBuf(const char *filename, char *buf, size_t max)
+{
+    FILE *f = fopen(filename, "r");
+    if (!f) {
         return -1;
     }
     int pos = fread(buf, 1, max - 1, f);
@@ -144,7 +175,7 @@ confFileToBuf(struct state *state, const char *devname, const char *name, char *
      * \n. Alternatively, for complete non-handling of partial line, set
      * index 0 to \0 if n is NULL.
      */
-    dprintf("File read (%s). contents are: %s\n", fullname, buf);
+    dprintf("File read (%s). contents are: %s\n", filename, buf);
     if (n) return n-buf; /* TODO: check math.*/
     return pos; /* TODO: check math */
 }
@@ -217,7 +248,11 @@ configureInterface(struct state *state, struct interface *interface)
 {
     char buf[1000];
     /* Check if this device wants a master */
-    int ret = confFileToBuf(state, interface->name, "master", buf, sizeof buf);
+    int ret = confFileToBufSilent(state, interface->name, "master", buf, sizeof buf);
+    /* TODO: What about errors? If it is ENOENT we don't care. If it was
+     * EPERM, maybe we care? What about ENOMEM or other errors where we
+     * /should/ have read the file, but something went wrong?
+     */
     if (ret > 0) {
         /* NOTE: according to libnl, older kernels require a legacy
          * interface. If we get -NLE_OPNOTSUPP, we may want to utilize that
